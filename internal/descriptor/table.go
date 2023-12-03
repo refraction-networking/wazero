@@ -1,6 +1,9 @@
 package descriptor
 
-import "math/bits"
+import (
+	"math/bits"
+	"sync"
+)
 
 // Table is a data structure mapping 32 bit descriptor to items.
 //
@@ -24,10 +27,14 @@ import "math/bits"
 type Table[Key ~int32, Item any] struct {
 	masks []uint64
 	items []Item
+	rw    sync.RWMutex // protects both masks and items
 }
 
 // Len returns the number of items stored in the table.
 func (t *Table[Key, Item]) Len() (n int) {
+	t.rw.RLock()
+	defer t.rw.RUnlock()
+
 	// We could make this a O(1) operation if we cached the number of items in
 	// the table. More state usually means more problems, so until we have a
 	// clear need for this, the simple implementation may be a better trade off.
@@ -39,6 +46,8 @@ func (t *Table[Key, Item]) Len() (n int) {
 
 // grow ensures that t has enough room for n items, potentially reallocating the
 // internal buffers if their capacity was too small to hold this many items.
+//
+// Must be called with t.rw.Lock() held.
 func (t *Table[Key, Item]) grow(n int) {
 	// Round up to a multiple of 64 since this is the smallest increment due to
 	// using 64 bits masks.
@@ -62,6 +71,9 @@ func (t *Table[Key, Item]) grow(n int) {
 // The method does not perform deduplication, it is possible for the same item
 // to be inserted multiple times, each insertion will return a different key.
 func (t *Table[Key, Item]) Insert(item Item) (key Key, ok bool) {
+	t.rw.Lock()
+	defer t.rw.Unlock()
+
 	offset := 0
 insert:
 	// Note: this loop could be made a lot more efficient using vectorized
@@ -93,6 +105,10 @@ func (t *Table[Key, Item]) Lookup(key Key) (item Item, found bool) {
 	if key < 0 { // invalid key
 		return
 	}
+
+	t.rw.RLock()
+	defer t.rw.RUnlock()
+
 	if i := int(key); i >= 0 && i < len(t.items) {
 		index := uint(key) / 64
 		shift := uint(key) % 64
@@ -109,6 +125,10 @@ func (t *Table[Key, Item]) InsertAt(item Item, key Key) bool {
 	if key < 0 {
 		return false
 	}
+
+	t.rw.Lock()
+	defer t.rw.Unlock()
+
 	if diff := int(key) - t.Len(); diff > 0 {
 		t.grow(diff)
 	}
@@ -124,6 +144,10 @@ func (t *Table[Key, Item]) Delete(key Key) {
 	if key < 0 { // invalid key
 		return
 	}
+
+	t.rw.Lock()
+	defer t.rw.Unlock()
+
 	if index, shift := key/64, key%64; int(index) < len(t.masks) {
 		mask := t.masks[index]
 		if (mask & (1 << shift)) != 0 {
@@ -137,6 +161,9 @@ func (t *Table[Key, Item]) Delete(key Key) {
 // Range calls f for each item and its associated key in the table. The function
 // f might return false to interupt the iteration.
 func (t *Table[Key, Item]) Range(f func(Key, Item) bool) {
+	t.rw.RLock()
+	defer t.rw.RUnlock()
+
 	for i, mask := range t.masks {
 		if mask == 0 {
 			continue
@@ -154,6 +181,9 @@ func (t *Table[Key, Item]) Range(f func(Key, Item) bool) {
 
 // Reset clears the content of the table.
 func (t *Table[Key, Item]) Reset() {
+	t.rw.Lock()
+	defer t.rw.Unlock()
+
 	for i := range t.masks {
 		t.masks[i] = 0
 	}
