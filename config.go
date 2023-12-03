@@ -309,6 +309,14 @@ type CompiledModule interface {
 	// Name returns the module name encoded into the binary or empty if not.
 	Name() string
 
+	// AllImports returns name and type of all imported functions, tables,
+	// memories or globals required for instantiation, per module name.
+	AllImports() map[string]map[string]api.ExternType
+
+	// AllExports returns name and type of all exported functions, tables,
+	// memories or globals from this module.
+	AllExports() map[string]api.ExternType
+
 	// ImportedFunctions returns all the imported functions
 	// (api.FunctionDefinition) in this module or nil if there are none.
 	//
@@ -372,6 +380,35 @@ func (c *compiledModule) Close(context.Context) error {
 	c.compiledEngine.DeleteCompiledModule(c.module)
 	// It is possible the underlying may need to return an error later, but in any case this matches api.Module.Close.
 	return nil
+}
+
+// AllExports implements CompiledModule.AllExports
+func (c *compiledModule) AllExports() map[string]api.ExternType {
+	var ret = make(map[string]api.ExternType)
+	for name, f := range c.module.Exports {
+		if f != nil {
+			ret[name] = f.Type
+		}
+	}
+	return ret
+}
+
+// AllImports implements CompiledModule.AllImports
+func (c *compiledModule) AllImports() map[string]map[string]api.ExternType {
+	var ret = make(map[string]map[string]api.ExternType)
+	for module, imports := range c.module.ImportPerModule {
+		if len(imports) == 0 {
+			continue
+		}
+
+		if _, ok := ret[module]; !ok {
+			ret[module] = make(map[string]api.ExternType)
+		}
+		for _, f := range imports {
+			ret[module][f.Name] = f.Type
+		}
+	}
+	return ret
 }
 
 // ImportedFunctions implements CompiledModule.ImportedFunctions
