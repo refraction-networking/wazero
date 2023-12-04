@@ -41,8 +41,6 @@ func (t *Table[Key, Item]) Len() (n int) {
 
 // grow ensures that t has enough room for n items, potentially reallocating the
 // internal buffers if their capacity was too small to hold this many items.
-//
-// Must be called with t.rw.Lock() held.
 func (t *Table[Key, Item]) grow(n int) {
 	// Round up to a multiple of 64 since this is the smallest increment due to
 	// using 64 bits masks.
