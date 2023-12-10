@@ -123,6 +123,7 @@ func pushTCPConn(ctx context.Context, m api.Module) {
 	var lisWg sync.WaitGroup
 	lisWg.Add(1)
 	go func() {
+		var err error
 		defer lisWg.Done()
 		lisConn, err = lis.AcceptTCP()
 		if err != nil {
