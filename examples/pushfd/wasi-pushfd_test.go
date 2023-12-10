@@ -10,6 +10,5 @@ import (
 func Test_main(t *testing.T) {
 	stdout, _ := maintester.TestMain(t, main, "")
 	require.Equal(t, `read 12 bytes: hello world
-read 12 bytes: hello world
 `, stdout)
 }

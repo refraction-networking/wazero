@@ -57,7 +57,7 @@ func main() {
 		log.Panicf("failed to instantiate: %v", err)
 	}
 
-	pushTCPConn(ctx, m)
+	// pushTCPConn(ctx, m)
 	pushOSFile(ctx, m)
 }
 
