@@ -5,9 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"sync"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -100,65 +98,6 @@ func pushOSFile(ctx context.Context, m api.Module) {
 	// read the result
 	buf := make([]byte, 1024)
 	n, err := f.Read(buf)
-	if err != nil {
-		log.Panicf("failed to read: %v", err)
-	}
-
-	fmt.Printf("read %d bytes: %s", n, string(buf[:n]))
-}
-
-func pushTCPConn(ctx context.Context, m api.Module) {
-	if m == nil {
-		log.Panicln("m is nil")
-	}
-
-	// create a TCP Conn pair
-	lis, err := net.ListenTCP("tcp", nil)
-	if err != nil {
-		log.Panicf("failed to listen: %v", err)
-	}
-	defer lis.Close()
-
-	var lisConn *net.TCPConn
-	var lisWg sync.WaitGroup
-	lisWg.Add(1)
-	go func() {
-		var err error
-		defer lisWg.Done()
-		lisConn, err = lis.AcceptTCP()
-		if err != nil {
-			log.Panicf("failed to accept: %v", err)
-		}
-	}()
-
-	dialConn, err := net.DialTCP("tcp", nil, lis.Addr().(*net.TCPAddr))
-	if err != nil {
-		log.Panicf("failed to dial: %v", err)
-	}
-
-	lisWg.Wait()
-
-	fd, ok := m.InsertTCPConn(lisConn)
-	if !ok {
-		log.Panicln("failed to insert TCPConn")
-	}
-
-	results, err := m.ExportedFunction("_write").Call(ctx, uint64(fd))
-	if err != nil {
-		log.Panicf("failed to call _write: %v", err)
-	}
-	// check the result
-	if len(results) != 1 {
-		log.Panicf("unexpected result length: %d", len(results))
-	}
-	result := results[0]
-	if resi32 := api.DecodeI32(result); resi32 != 12 {
-		log.Panicf("unexpected result: %d", resi32)
-	}
-
-	// read the result
-	buf := make([]byte, 1024)
-	n, err := dialConn.Read(buf)
 	if err != nil {
 		log.Panicf("failed to read: %v", err)
 	}
