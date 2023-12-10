@@ -210,6 +210,8 @@ type Module interface {
 	IsClosed() bool
 
 	internalapi.WazeroOnly
+
+	WATERModuleExtension // [WATER] extended for WATER to support more features
 }
 
 // Closer closes a resource.

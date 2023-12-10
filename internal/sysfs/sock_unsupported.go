@@ -24,3 +24,19 @@ type unsupportedSockFile struct {
 func (f *unsupportedSockFile) Accept() (socketapi.TCPConn, sys.Errno) {
 	return nil, sys.ENOSYS
 }
+
+func newTcpConn(tc *net.TCPConn) socketapi.TCPConn {
+	return &unsupportedConnFile{}
+}
+
+type unsupportedConnFile struct {
+	baseSockFile
+}
+
+func (f *unsupportedConnFile) Recvfrom(p []byte, flags int) (n int, errno sys.Errno) {
+	return 0, sys.ENOSYS
+}
+
+func (f *unsupportedConnFile) Shutdown(how int) sys.Errno {
+	return sys.ENOSYS
+}
