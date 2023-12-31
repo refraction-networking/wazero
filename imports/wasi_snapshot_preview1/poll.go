@@ -147,8 +147,10 @@ func pollOneoffFn(_ context.Context, mod api.Module, params []uint64) sys.Errno 
 			if fd < 0 {
 				return sys.EBADF
 			}
-			if _, ok := fsc.LookupFile(fd); ok {
-				evt.errno = wasip1.ErrnoNotsup
+			if file, ok := fsc.LookupFile(fd); ok {
+				if !file.File.IsNonblock() {
+					evt.errno = wasip1.ErrnoNotsup
+				}
 			} else {
 				evt.errno = wasip1.ErrnoBadf
 			}
