@@ -356,6 +356,8 @@ type CompiledModule interface {
 	// Note: It is safe to call Close while having outstanding calls from an
 	// api.Module instantiated from this.
 	Close(context.Context) error
+
+	WATERExtendedCompiledModule // [WATER] We extend the interface to export more APIs, see w_config.go.
 }
 
 // compile-time check to ensure compiledModule implements CompiledModule
