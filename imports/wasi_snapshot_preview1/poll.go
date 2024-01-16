@@ -2,12 +2,15 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental/sys"
 	"github.com/tetratelabs/wazero/internal/fsapi"
+	socketapi "github.com/tetratelabs/wazero/internal/sock"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
+	"github.com/tetratelabs/wazero/internal/sysfs"
 	"github.com/tetratelabs/wazero/internal/wasip1"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
@@ -49,6 +52,12 @@ type event struct {
 	errno     wasip1.Errno
 }
 
+type nonblockingSocketSub struct {
+	fd  int32
+	tc  socketapi.TCPConn
+	evt *event
+}
+
 func pollOneoffFn(_ context.Context, mod api.Module, params []uint64) sys.Errno {
 	in := uint32(params[0])
 	out := uint32(params[1])
@@ -88,6 +97,8 @@ func pollOneoffFn(_ context.Context, mod api.Module, params []uint64) sys.Errno 
 	fsc := mod.(*wasm.ModuleInstance).Sys.FS()
 	// Slice of events that are processed out of the loop (blocking stdin subscribers).
 	var blockingStdinSubs []*event
+	// Slice of events that are processed out of the loop (nonblocking socket subscribers).
+	var nonblockingSocketSubs []*nonblockingSocketSub
 	// The timeout is initialized at max Duration, the loop will find the minimum.
 	var timeout time.Duration = 1<<63 - 1
 	// Count of all the subscriptions that have been already written back to outBuf.
@@ -135,6 +146,13 @@ func pollOneoffFn(_ context.Context, mod api.Module, params []uint64) sys.Errno 
 				writeEvent(outBuf[outOffset:], evt)
 				nevents++
 			} else if fd != internalsys.FdStdin && file.File.IsNonblock() {
+				if tcpConn, ok := file.File.(socketapi.TCPConn); ok {
+					nonblockingSocketSubs = append(nonblockingSocketSubs, &nonblockingSocketSub{
+						fd:  fd,
+						tc:  tcpConn,
+						evt: evt,
+					})
+				}
 				writeEvent(outBuf[outOffset:], evt)
 				nevents++
 			} else {
@@ -158,6 +176,25 @@ func pollOneoffFn(_ context.Context, mod api.Module, params []uint64) sys.Errno 
 			writeEvent(outBuf[outOffset:], evt)
 		default:
 			return sys.EINVAL
+		}
+	}
+
+	if len(nonblockingSocketSubs) > 0 {
+		var conns []socketapi.TCPConn
+		var events []int16
+
+		for _, sub := range nonblockingSocketSubs {
+			conns = append(conns, sub.tc)
+			events = append(events, sysfs.POLLIN) // TODO: support other events
+		}
+
+		ready, err := sysfs.PollTCPConns(conns, events)
+		if !errors.Is(err, sys.Errno(0)) {
+			return err.(sys.Errno)
+		}
+
+		if ready <= 0 {
+			return sys.ENOTSUP
 		}
 	}
 
