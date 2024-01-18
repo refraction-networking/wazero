@@ -38,7 +38,7 @@ func newPollFd(fd uintptr, events, revents int16) pollFd {
 }
 
 // pollInterval is the interval between each calls to peekNamedPipe in selectAllHandles
-const pollInterval = 100 * time.Millisecond
+const pollInterval = 100 * time.Millisecond //nolint:unused
 
 // _poll implements poll on Windows, for a subset of cases.
 //
@@ -66,45 +66,67 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		return -1, errno
 	}
 
-	// Ticker that emits at every pollInterval.
-	tick := time.NewTicker(pollInterval)
-	tickCh := tick.C
-	defer tick.Stop()
+	// // Ticker that emits at every pollInterval.
+	// tick := time.NewTicker(pollInterval)
+	// tickCh := tick.C
+	// defer tick.Stop()
 
-	// Timer that expires after the given duration.
-	// Initialize afterCh as nil: the select below will wait forever.
-	var afterCh <-chan time.Time
-	if timeoutMillis >= 0 {
-		// If duration is not nil, instantiate the timer.
-		after := time.NewTimer(time.Duration(timeoutMillis) * time.Millisecond)
-		defer after.Stop()
-		afterCh = after.C
-	}
+	// // Timer that expires after the given duration.
+	// // Initialize afterCh as nil: the select below will wait forever.
+	// var afterCh <-chan time.Time
+	// if timeoutMillis >= 0 {
+	// 	// If duration is not nil, instantiate the timer.
+	// 	after := time.NewTimer(time.Duration(timeoutMillis) * time.Millisecond)
+	// 	defer after.Stop()
+	// 	afterCh = after.C
+	// }
 
-	npipes, nsockets, errno := peekAll(pipes, sockets)
+	npipes, nsockets, errno := pollAll(pipes, sockets, int(timeoutMillis))
 	if errno != 0 {
 		return -1, errno
 	}
 	count := nregular + npipes + nsockets
-	if count > 0 {
-		return count, 0
+	return count, 0
+	// if count > 0 {
+	// 	return count, 0
+	// }
+
+	// for {
+	// 	select {
+	// 	case <-afterCh:
+	// 		return 0, 0
+	// 	case <-tickCh:
+	// 		npipes, nsockets, errno := peekAll(pipes, sockets)
+	// 		if errno != 0 {
+	// 			return -1, errno
+	// 		}
+	// 		count = nregular + npipes + nsockets
+	// 		if count > 0 {
+	// 			return count, 0
+	// 		}
+	// 	}
+	// }
+}
+
+func pollAll(pipes, sockets []pollFd, timeout int) (npipes, nsockets int, errno sys.Errno) {
+	npipes, errno = peekPipes(pipes)
+	if errno != 0 {
+		return
 	}
 
-	for {
-		select {
-		case <-afterCh:
-			return 0, 0
-		case <-tickCh:
-			npipes, nsockets, errno := peekAll(pipes, sockets)
-			if errno != 0 {
-				return -1, errno
-			}
-			count = nregular + npipes + nsockets
-			if count > 0 {
-				return count, 0
-			}
-		}
+	// Invoke wsaPoll with a 0-timeout to avoid blocking.
+	// Timeouts are handled in pollWithContext instead.
+	nsockets, errno = wsaPoll(sockets, timeout)
+	if errno != 0 {
+		return
 	}
+
+	count := npipes + nsockets
+	if count > 0 {
+		return
+	}
+
+	return
 }
 
 func peekAll(pipes, sockets []pollFd) (npipes, nsockets int, errno sys.Errno) {
