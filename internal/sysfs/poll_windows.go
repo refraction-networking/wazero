@@ -66,6 +66,28 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		return -1, errno
 	}
 
+	npipes, nsockets, errno := peekAll(pipes, sockets)
+	if errno != 0 {
+		return -1, errno
+	}
+	count := nregular + npipes + nsockets
+	if count > 0 {
+		return count, 0
+	}
+
+	// At this point, we know there are:
+	//  - no regular files in the list
+	//  - no pipes or sockets are ready
+	//
+	// If there are only sockets, we can invoke wsaPoll with the given timeout.
+	if len(pipes) == 0 {
+		return wsaPoll(sockets, int(timeoutMillis))
+	}
+
+	// Otherwise, we need to check both pipes and sockets, and cannot use wsaPoll.
+	// We use a ticker to trigger a check periodically, and a timer to expire after
+	// the given timeout.
+
 	// Ticker that emits at every pollInterval.
 	tick := time.NewTicker(pollInterval)
 	tickCh := tick.C
@@ -79,15 +101,6 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		after := time.NewTimer(time.Duration(timeoutMillis) * time.Millisecond)
 		defer after.Stop()
 		afterCh = after.C
-	}
-
-	npipes, nsockets, errno := peekAll(pipes, sockets)
-	if errno != 0 {
-		return -1, errno
-	}
-	count := nregular + npipes + nsockets
-	if count > 0 {
-		return count, 0
 	}
 
 	for {
