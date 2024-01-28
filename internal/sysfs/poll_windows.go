@@ -18,8 +18,12 @@ const (
 	_POLLRDNORM = 0x0100
 	// _POLLRDBAND subscribes to priority band (out-of-band) data for read.
 	_POLLRDBAND = 0x0200
+	// _POLLWRNORM subscribes to normal data for write.
+	_POLLWRNORM = 0x0010 // [WATER] added _POLLWRNORM to support subscription to FdWrite events
 	// _POLLIN subscribes a notification when any readable data is available.
 	_POLLIN = (_POLLRDNORM | _POLLRDBAND)
+	// _POLLOUT subscribes a notification when any writeable data can be written.
+	_POLLOUT = _POLLWRNORM // [WATER] added _POLLOUT to support subscription to FdWrite events
 )
 
 // pollFd is the struct to query for file descriptor events using poll.
@@ -66,6 +70,44 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		return -1, errno
 	}
 
+	// [WATER SECTION BEGIN]
+
+	// automatically merge the partitions back to the original slice to update revents
+	defer mergePartitions(fds, regular, pipes, sockets)
+
+	// phony poll regular files: always writable and readable
+	for _, fd := range regular {
+		if fd.events == _POLLIN || fd.events == _POLLOUT {
+			fd.revents = fd.events
+		}
+	}
+
+	// First do a one-shot check for any ready-to-go pipes or sockets.
+	npipes, nsockets, errno := peekAll(pipes, sockets)
+	if errno != 0 {
+		return -1, errno
+	}
+	count := nregular + npipes + nsockets
+	if count > 0 {
+		return count, 0
+	}
+
+	// Now we learned:
+	//  - no regular files in the list (otherwise already returned)
+	//  - none of the pipes or sockets are ready
+
+	// We can invoke wsaPoll with the given timeout instead of busy-looping if
+	// only sockets are present.
+	if len(pipes) == 0 {
+		return wsaPoll(sockets, int(timeoutMillis))
+	}
+
+	// Otherwise, we need to check both pipes and sockets, and cannot use wsaPoll.
+	// We use a ticker to trigger a check periodically, and a timer to expire after
+	// the given timeout.
+
+	// [WATER SECTION END]
+
 	// Ticker that emits at every pollInterval.
 	tick := time.NewTicker(pollInterval)
 	tickCh := tick.C
@@ -79,15 +121,6 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		after := time.NewTimer(time.Duration(timeoutMillis) * time.Millisecond)
 		defer after.Stop()
 		afterCh = after.C
-	}
-
-	npipes, nsockets, errno := peekAll(pipes, sockets)
-	if errno != 0 {
-		return -1, errno
-	}
-	count := nregular + npipes + nsockets
-	if count > 0 {
-		return count, 0
 	}
 
 	for {
@@ -187,6 +220,30 @@ func partionByFtype(fds []pollFd) (regular, pipe, socket []pollFd, errno sys.Err
 		}
 	}
 	return
+}
+
+// mergePartitions merges the given partitions back to the original slice and
+// updates the revents field of each pollFd.
+func mergePartitions(dst []pollFd, partitions ...[]pollFd) {
+	for _, p := range partitions {
+	LOOP_EACH_FD_IN_PARTITION:
+		for _, pfd := range p {
+			for i, fd := range dst {
+				if fd.fd == pfd.fd && fd.events == pfd.events {
+					dst[i].revents = pfd.revents
+
+					// special case: POLLIN combines POLLRDNORM and POLLRDBAND and
+					// when one of them is set, we need to set the other to maintain
+					// consistency with the Linux implementation.
+					if pfd.revents&_POLLIN != 0 {
+						dst[i].revents |= _POLLIN
+					}
+
+					continue LOOP_EACH_FD_IN_PARTITION // go to next fd in partition, we assume dst is unique
+				}
+			}
+		}
+	}
 }
 
 // ftypeOf checks the type of fd and return the corresponding ftype.

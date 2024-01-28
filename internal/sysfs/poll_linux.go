@@ -25,12 +25,17 @@ func newPollFd(fd uintptr, events, revents int16) pollFd {
 
 // _POLLIN subscribes a notification when any readable data is available.
 const _POLLIN = 0x0001
+const _POLLOUT = 0x0004 // [WATER] added _POLLOUT to support subscription to FdWrite events
 
 // _poll implements poll on Linux via ppoll.
 func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 	var ts syscall.Timespec
 	if timeoutMillis >= 0 {
 		ts = syscall.NsecToTimespec(int64(time.Duration(timeoutMillis) * time.Millisecond))
+	} else { // [WATER] Patched this branch to support negative timeouts for max duration
+		// just max out the timeout, simply giving a negative timeout will not work
+		// as it fails with EINVAL
+		ts = syscall.NsecToTimespec(1<<63 - 1)
 	}
 	return ppoll(fds, &ts)
 }
