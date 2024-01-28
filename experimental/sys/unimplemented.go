@@ -158,3 +158,12 @@ func (UnimplementedFile) Utimens(int64, int64) Errno {
 
 // Close implements File.Close
 func (UnimplementedFile) Close() (errno Errno) { return }
+
+// [WATER SECTION BEGIN]
+
+// Fd implements File.Fd
+func (UnimplementedFile) Fd() uintptr {
+	return 0 // not ENOSYS
+}
+
+// [WATER SECTION END]
