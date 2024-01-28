@@ -149,3 +149,14 @@ func (d *lazyDir) SetNonblock(bool) experimentalsys.Errno {
 func (d *lazyDir) Poll(fsapi.Pflag, int32) (ready bool, errno experimentalsys.Errno) {
 	return false, experimentalsys.ENOSYS
 }
+
+// [WATER SECTION BEGIN]
+
+// Fd implements the same method as documented on fsapi.File
+//
+// We do not know the file descriptor of a lazyDir, so we return 0.
+func (d *lazyDir) Fd() uintptr {
+	return 0
+}
+
+// [WATER SECTION END]

@@ -17,4 +17,12 @@ const (
 
 	// POLLOUT is a write event.
 	POLLOUT
+
+	// [WATER SECTION BEGIN]
+
+	// POLLUNKNOWN is an unknown event. It is used to indicate that the
+	// event is not currently supported but there was an event set.
+	POLLUNKNOWN
+
+	// [WATER SECTION END]
 )

@@ -213,6 +213,15 @@ func (f *osFile) Poll(flag fsapi.Pflag, timeoutMillis int32) (ready bool, errno 
 	return poll(f.fd, flag, timeoutMillis)
 }
 
+// [WATER SECTION BEGIN]
+
+// Fd implements the same method as documented on sys.File
+func (f *osFile) Fd() uintptr {
+	return f.fd
+}
+
+// [WATER SECTION END]
+
 // Readdir implements File.Readdir. Notably, this uses "Readdir", not
 // "ReadDir", from os.File.
 func (f *osFile) Readdir(n int) (dirents []experimentalsys.Dirent, errno experimentalsys.Errno) {
