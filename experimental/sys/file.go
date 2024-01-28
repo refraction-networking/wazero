@@ -313,4 +313,16 @@ type File interface {
 	//   - This is like syscall.Close and `close` in POSIX. See
 	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/close.html
 	Close() Errno
+
+	// [WATER SECTION BEGIN]
+
+	// Fd returns the underlying file descriptor owned by the host. If a file
+	// descriptor does not exist, it returns 0.
+	//
+	// This is a useful workaround since we want to collect the file descriptor
+	// from every file (including sockets and pipes) and pass them into the poll
+	// syscall in poll_oneoff.
+	Fd() uintptr
+
+	// [WATER SECTION END]
 }
