@@ -23,6 +23,7 @@ func newPollFd(fd uintptr, events, revents int16) pollFd {
 
 // _POLLIN subscribes a notification when any readable data is available.
 const _POLLIN = 0x0001
+const _POLLOUT = 0x0004 // [WATER] added _POLLOUT to support subscription to FdWrite events
 
 // _poll implements poll on Darwin via the corresponding libc function.
 func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
