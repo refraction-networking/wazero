@@ -57,12 +57,17 @@ func alternativePollOneoffFn(_ context.Context, mod api.Module, params []uint64)
 		return sys.EFAULT
 	}
 
+	// start by writing 0 to resultNevents
+	if !mod.Memory().WriteUint32Le(resultNevents, 0) {
+		return sys.EFAULT
+	}
+
 	// Extract FS context, used in the body of the for loop for FS access.
 	fsc := mod.(*wasm.ModuleInstance).Sys.FS()
-
+	// Slice of events that are processed out of the loop (blocking stdin subscribers).
+	var blockingStdinSubs []*event
 	// The timeout is initialized at max Duration, the loop will find the minimum.
 	var timeout time.Duration = 1<<63 - 1
-
 	// Count of all the subscriptions that have been already written back to outBuf.
 	// nevents*32 returns at all times the offset where the next event should be written:
 	// this way we ensure that there are no gaps between records.
@@ -116,9 +121,15 @@ func alternativePollOneoffFn(_ context.Context, mod api.Module, params []uint64)
 				evt.errno = wasip1.ErrnoBadf
 				writeEvent(outBuf[outOffset:], evt)
 				nevents++
-			} else if guestFd == internalsys.FdStdin { // stdin is always ready to read (can read 0/EOF etc)
-				writeEvent(outBuf[outOffset:], evt)
-				nevents++
+			} else if guestFd == internalsys.FdStdin { // stdin is always checked with Poll function later.
+				if file.File.IsNonblock() { // non-blocking stdin is always ready to read
+					writeEvent(outBuf[outOffset:], evt)
+					nevents++
+				} else {
+					// if the fd is Stdin, and it is in blocking mode,
+					// do not ack yet, append to a slice for delayed evaluation.
+					blockingStdinSubs = append(blockingStdinSubs, evt)
+				}
 			} else if hostFd := file.File.Fd(); hostFd == 0 {
 				evt.errno = wasip1.ErrnoNotsup
 				writeEvent(outBuf[outOffset:], evt)
@@ -177,39 +188,56 @@ func alternativePollOneoffFn(_ context.Context, mod api.Module, params []uint64)
 			writeEvent(outBuf[nevents*32:], clkevent)
 			nevents++
 		}
-		// write nevents to resultNevents
-		if !mem.WriteUint32Le(resultNevents, nevents) {
-			return sys.EFAULT
-		}
-		return 0
 	}
 
 	// If there are I/O subscriptions, we call poll on the I/O fds with the updated timeout.
+	if len(hostPollSubs) > 0 {
+		pollNevents, err := internalsysfs.Poll(hostPollSubs, int32(timeout.Milliseconds()))
+		if err != 0 {
+			return err
+		}
 
-	pollNevents, err := internalsysfs.Poll(hostPollSubs, int32(timeout.Milliseconds()))
-	if err != 0 {
-		return err
-	}
-
-	if pollNevents > 0 { // if there are events triggered
-		// iterate over hostPollSubs and if the revent is set, write back
-		// the event
-		for i, pollFd := range hostPollSubs {
-			if pollFd.Revents&pollFd.Events != 0 {
-				// write back the event
-				writeEvent(outBuf[nevents*32:], ioEvents[i])
-				nevents++
-			} else if pollFd.Revents != 0 {
-				// write back the event
-				writeEvent(outBuf[nevents*32:], ioEvents[i])
+		if pollNevents > 0 { // if there are events triggered
+			// iterate over hostPollSubs and if the revent is set, write back
+			// the event
+			for i, pollFd := range hostPollSubs {
+				if pollFd.Revents&pollFd.Events != 0 {
+					// write back the event
+					writeEvent(outBuf[nevents*32:], ioEvents[i])
+					nevents++
+				} else if pollFd.Revents != 0 {
+					// write back the event
+					writeEvent(outBuf[nevents*32:], ioEvents[i])
+					nevents++
+				}
+			}
+		} else { // otherwise it means that the timeout expired
+			// Ack the clock event if there is one (it can also be a default max timeout)
+			if clkevent != nil {
+				writeEvent(outBuf[nevents*32:], clkevent)
 				nevents++
 			}
 		}
-	} else { // otherwise it means that the timeout expired
-		// Ack the clock event if there is one (it can also be a default max timeout)
-		if clkevent != nil {
-			writeEvent(outBuf[nevents*32:], clkevent)
-			nevents++
+	}
+
+	// If there are blocking stdin subscribers, check for data with given timeout.
+	if len(blockingStdinSubs) > 0 {
+		stdin, ok := fsc.LookupFile(internalsys.FdStdin)
+		if !ok {
+			return sys.EBADF
+		}
+
+		// Wait for the timeout to expire, or for some data to become available on Stdin.
+		if stdinReady, errno := stdin.File.Poll(fsapi.POLLIN, int32(timeout.Milliseconds())); errno != 0 {
+			return errno
+		} else if stdinReady {
+			// stdin has data ready to for reading, write back all the events
+			for i := range blockingStdinSubs {
+				evt := blockingStdinSubs[i]
+				evt.errno = 0
+				writeEvent(outBuf[nevents*32:], evt)
+				nevents++
+			}
 		}
 	}
 
