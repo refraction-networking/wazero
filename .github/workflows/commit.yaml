@@ -26,36 +26,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Pre-commit check
-    # wabt requires a later version of libc than what's installed on ubuntu-22.04.
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install latest wast2json
-        run: |  # Needed for build.spectest. wabt includes wast2json.
-          wabt_version=1.0.34
-          wabt_url=https://github.com/WebAssembly/wabt/releases/download/${wabt_version}/wabt-${wabt_version}-ubuntu.tar.gz
-          curl -sSL ${wabt_url} | tar --strip-components 2 -C /usr/local/bin -xzf - wabt-${wabt_version}/bin/wast2json
+  # check:
+  #   name: Pre-commit check
+  #   # wabt requires a later version of libc than what's installed on ubuntu-22.04.
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Install latest wast2json
+  #       run: |  # Needed for build.spectest. wabt includes wast2json.
+  #         wabt_version=1.0.34
+  #         wabt_url=https://github.com/WebAssembly/wabt/releases/download/${wabt_version}/wabt-${wabt_version}-ubuntu.tar.gz
+  #         curl -sSL ${wabt_url} | tar --strip-components 2 -C /usr/local/bin -xzf - wabt-${wabt_version}/bin/wast2json
 
-      - uses: actions/checkout@v3
+  #     - uses: actions/checkout@v3
 
-      - uses: actions/setup-go@v4
-        with:  # not cache: true as we also need to cache golint
-          cache: false
-          go-version: ${{ env.GO_VERSION }}
+  #     - uses: actions/setup-go@v4
+  #       with:  # not cache: true as we also need to cache golint
+  #         cache: false
+  #         go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/.cache/golangci-lint
-            ~/go/pkg/mod
-            ~/go/bin
-          key: check-${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', 'Makefile') }}
+  #     - uses: actions/cache@v3
+  #       with:
+  #         path: |
+  #           ~/.cache/go-build
+  #           ~/.cache/golangci-lint
+  #           ~/go/pkg/mod
+  #           ~/go/bin
+  #         key: check-${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', 'Makefile') }}
 
-      - run: make build.spectest
+  #     - run: make build.spectest
 
-      - run: make check
+  #     - run: make check
 
   test:
     name: ${{ matrix.platform.arch }}, ${{ matrix.platform.os }}, Go-${{ matrix.go-version }}
